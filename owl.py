@@ -192,7 +192,6 @@ class Owl:
             
         # Gimbal sprayer prototype
         self.gimbal_controller = GimbalController()
-        ``
 
 
         ### Data collection only ###
