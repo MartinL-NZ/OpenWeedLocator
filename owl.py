@@ -79,6 +79,8 @@ try:
     from utils.greenonbrown import GreenOnBrown
     from utils.frame_reader import FrameReader
     from utils.config_manager import ConfigValidator
+    from utils.gimbal_mapper import pixel_to_angle
+    from utils.gimbal_controller import GimbalController
     from utils.log_manager import LogManager, MQTTLogHandler
     from utils.shared_types import Sensitivity
     import utils.error_manager as errors
@@ -187,6 +189,11 @@ class Owl:
             self.logger.critical("OWL initialization failed: GPIO pin conflict. Another OWL instance may be running.",
                                  exc_info=True)
             raise
+            
+        # Gimbal sprayer prototype
+        self.gimbal_controller = GimbalController()
+        ``
+
 
         ### Data collection only ###
         self.detection_enable = Value('b', self.config.getboolean('DataCollection', 'detection_enable', fallback=False))
@@ -870,21 +877,57 @@ class Owl:
                                     time_stamp=actuation_time,
                                     duration=self.actuation_duration)
                     else:
-                        # Centre-based actuation (default, works for all model types)
-                        # One timestamp per frame, deduplicated relay calls (at most relay_num)
+                        # Centre-based actuation with gimbal sprayer
+                        # Uses weed centre x-position to calculate gimbal angle.
+                        # Fires one physical spray valve instead of lane-specific relays.
+                    
                         if weed_centres:
                             actuation_time = time.time()
-                            fired = set()
-                            for centre in weed_centres:
-                                if centre[1] >= self.actuation_y_thresh:
-                                    relay_id = min(int(centre[0] / self.lane_width), self.relay_num - 1)
-                                    fired.add(relay_id)
-                            for relay_id in fired:
+                    
+                            # Only consider weeds inside the actuation zone
+                            eligible_centres = [
+                                centre for centre in weed_centres
+                                if centre[1] >= self.actuation_y_thresh
+                            ]
+                    
+                            if eligible_centres:
+                                # Pick the weed closest to the nozzle line.
+                                # In image coordinates, larger y usually means lower in the image.
+                                target_centre = max(
+                                    eligible_centres,
+                                    key=lambda c: c[1]
+                                )
+                    
+                                target_x = target_centre[0]
+                    
+                                # Important: weed_centres are from cropped_frame,
+                                # so use cropped_frame width, not full camera width.
+                                frame_width_for_mapping = cropped_frame.shape[1]
+                    
+                                angle = pixel_to_angle(
+                                    x_pixel=target_x,
+                                    image_width=frame_width_for_mapping
+                                )
+                    
+                                self.logger.info(
+                                    f"Gimbal target x={target_x}, angle={angle:.2f}"
+                                )
+                    
+                                # Move the gimbal
+                                self.gimbal_controller.point_to(angle)
+                    
+                                # For first real spray test, use ONE physical valve.
+                                # Use relay 0 unless your solenoid is wired to a different relay.
+                                spray_relay = 0
+                    
                                 self.relay_controller.receive(
-                                    relay=relay_id,
+                                    relay=spray_relay,
                                     delay=self.delay,
                                     time_stamp=actuation_time,
-                                    duration=self.actuation_duration)
+                                    duration=self.actuation_duration
+                                )
+
+                       
 
                 ##### Update Dashboard Stream #####
                 if frame_count % 90 == 0:  # Every 90 frames (~3 seconds at 30fps)
