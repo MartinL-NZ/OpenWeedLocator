@@ -5,6 +5,7 @@ from utils.log_manager import LogManager
 from enum import Enum
 from collections import deque
 from typing import Optional
+from utils.gimbal_controller import GimbalController
 
 import subprocess
 import shutil
@@ -482,6 +483,7 @@ class RelayController:
         self.relay_dict = relay_dict
         self.vis = vis
         self.status_led = status_led
+        self.gimbal = GimbalController()
         # instantiate relay control with supplied relay dictionary to map to correct board pins
         try:
             self.relay = RelayControl(self.relay_dict)
@@ -507,7 +509,7 @@ class RelayController:
         self.logger.info("[INFO] Nozzle setup complete. Initiating camera...")
         self.relay.beep(duration=0.5)
 
-    def receive(self, relay, time_stamp, location=0, delay=0, duration=1):
+    def receive(self, relay, time_stamp, location=0, delay=0, duration=1, self.gimbal.point_to(0)):
         """
         this method adds a new job to specified relay queue. GPS location data etc to be added. Time stamped
         records the true time of weed detection from main thread, which is compared to time of relay activation for accurate
